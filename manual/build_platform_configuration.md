@@ -26,7 +26,13 @@ switch("define", "NaylibSupportAutomationEvents=false")
 
 ### Available Options
 
-A full list of configurable options can be found in the `rconfig.nim` file. Refer to it for the supported feature flags and their descriptions: [rconfig.nim](../src/naylib/private/rconfig.nim).
+A full list of configurable options can be found in the `config.nim` file. Refer to it for the supported feature flags and their descriptions: [config.nim](../src/naylib/private/config.nim).
+
+### GPU Skinning
+
+Following raylib 6, GPU skinning for animated models is disabled by default, since some GPUs
+do not support more than 8 vertex buffers per mesh. Animations are then skinned on the CPU by
+`updateModelAnimation`. To enable GPU skinning, compile with `-d:NaylibSupportGpuSkinning`.
 
 ## Building for the Web (WebAssembly)
 

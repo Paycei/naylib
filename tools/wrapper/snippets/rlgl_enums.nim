@@ -88,9 +88,10 @@
     AttribColor
     AttribTangent
     AttribTexcoord2
-    AttribLocationBoneIds
-    AttribLocationBoneWeights
     AttribLocationIndices
+    AttribLocationBoneIndices
+    AttribLocationBoneWeights
+    AttribLocationInstanceTransform
 
   DefaultShaderVariableName* = enum ## Default shader vertex attribute names to set location points
     AttribPosition = "vertexPosition" ## Bound by default to shader location: 0
@@ -99,15 +100,16 @@
     AttribColor = "vertexColor" ## Bound by default to shader location: 3
     AttribTangent = "vertexTangent" ## Bound by default to shader location: 4
     AttribTexcoord2 = "vertexTexCoord2" ## Bound by default to shader location: 5
-    AttribLocationBoneIds = "vertexBoneIds" ## Bound by default to shader location: 6
-    AttribLocationBoneWeights = "vertexBoneWeights" ## Bound by default to shader location: 7
+    AttribLocationBoneIndices = "vertexBoneIndices" ## Bound by default to shader location: 7
+    AttribLocationBoneWeights = "vertexBoneWeights" ## Bound by default to shader location: 8
+    AttribLocationInstanceTransform = "instanceTransform" ## Bound by default to shader location: 9
     UniformMvp = "mvp" ## model-view-projection matrix
     UniformView = "matView" ## view matrix
     UniformProjection = "matProjection" ## projection matrix
     UniformModel = "matModel" ## model matrix
     UniformNormal = "matNormal" ## normal matrix (transpose(inverse(matModelView))
     UniformColor = "colDiffuse" ## color diffuse (base tint color, multiplied by texture color)
-    UniformBoneMatrices = "boneMatrices" ## bone matrices
+    UniformBoneMatrices = "boneMatrices" ## bone matrices (required for GPU skinning)
     Sampler2dTexture0 = "texture0" ## texture0 (texture slot active 0)
     Sampler2dTexture1 = "texture1" ## texture1 (texture slot active 1)
     Sampler2dTexture2 = "texture2" ## texture2 (texture slot active 2)

@@ -13,8 +13,11 @@ var
   traceLogCallback: TraceLogCallback # TraceLog callback function pointer
 
 proc wrapperTraceLogCallback(logLevel: int32; text: ConstCstring; args: va_list) {.cdecl.} =
-  var buf = newString(128)
-  vsprintf(buf.cstring, text, args)
+  const MaxTraceLogMsgLength = 256 # Same limit raylib uses for its own trace log messages
+  var buf = newStringUninit(MaxTraceLogMsgLength)
+  let len = vsnprintf(buf.cstring, csize_t(MaxTraceLogMsgLength + 1), text, args)
+  # Pre-C99 runtimes (older msvcrt) return a negative value when the output is truncated
+  buf.setLen(if len < 0: MaxTraceLogMsgLength else: min(len, MaxTraceLogMsgLength))
   traceLogCallback(logLevel.TraceLogLevel, buf)
 
 proc setTraceLogCallback*(callback: TraceLogCallback) =
@@ -53,16 +56,27 @@ proc exportDataAsCode*(data: openArray[byte], fileName: string): bool =
 # more info and bugs-report:  github.com/raysan5/raylib
 # feedback and support:       ray[at]raylib.com
 #
-# Copyright (c) 2022-2023 Ramon Santamaria (@raysan5)
+# Copyright (c) 2022-2026 Ramon Santamaria (@raysan5)
 #
 """)
-  # Get the file name from the path
-  let name = extractFilename(fileName.Path)
-  txtData.addf("const $1Data: array[$2, byte] = [ ", name.string, data.len)
-  for i in 0..data.high - 1:
-    txtData.addf(
-        if i mod TextBytesPerLine == 0: "0x$1,\n" else: "0x$1, ", data[i].toHex)
-  txtData.addf("0x$1 ]\n", data[^1].toHex)
+  # Get a valid Nim identifier from the file name: "my-data.nim" -> "myDataData"
+  var name = ""
+  var capitalize = false
+  for c in splitFile(fileName.Path).name.string:
+    if c in {'a'..'z', 'A'..'Z', '0'..'9'}:
+      name.add(if capitalize and name.len > 0: toUpperAscii(c) else: c)
+      capitalize = false
+    else:
+      capitalize = true
+  if name.len == 0 or name[0] in {'0'..'9'}:
+    name.insert("data")
+  txtData.add("const " & name & "Data: array[" & $data.len & ", byte] = [")
+  for i in 0..data.high:
+    txtData.add(if i mod TextBytesPerLine == 0: "\n  " else: " ")
+    txtData.add("0x")
+    txtData.add(toHex(data[i]))
+    if i < data.high: txtData.add(',')
+  txtData.add(" ]\n")
   try:
     writeFile(fileName, txtData)
     result = true
@@ -70,9 +84,9 @@ proc exportDataAsCode*(data: openArray[byte], fileName: string): bool =
     discard
 
   if result:
-    traceLog(Info, "FILEIO: [%s] Data as code exported successfully", fileName)
+    traceLog(Info, "FILEIO: [%s] Data as code exported successfully", fileName.cstring)
   else:
-    traceLog(Warning, "FILEIO: [%s] Failed to export data as code", fileName)
+    traceLog(Warning, "FILEIO: [%s] Failed to export data as code", fileName.cstring)
 
 type
   ShaderV* = concept
@@ -211,6 +225,11 @@ proc loadRenderTexture*(width: int32, height: int32): RenderTexture2D =
   result = loadRenderTextureImpl(width, height)
   if not isRenderTextureValid(result): raiseRaylibError("Failed to load RenderTexture")
 
+proc loadRenderTexture*(width: int32, height: int32, format: PixelFormat): RenderTexture2D =
+  ## Load texture for rendering (framebuffer), with specific format
+  result = loadRenderTextureImpl(width, height, format)
+  if not isRenderTextureValid(result): raiseRaylibError("Failed to load RenderTexture")
+
 proc updateTexture*[T: Pixel](texture: Texture2D, pixels: openArray[T]) =
   ## Update GPU texture with new data (pixels should be able to fill texture)
   assert texture.format == pixelKind(T), "Incompatible texture format"
@@ -344,9 +363,19 @@ proc loadSoundFromWave*(wave: Wave): Sound =
   result = loadSoundFromWaveImpl(wave)
   if not isSoundValid(result): raiseRaylibError("Failed to load Sound from Wave")
 
+proc frameCount[T](stream: AudioStream, data: openArray[T]): int32 {.inline.} =
+  # Number of audio frames (one sample per channel) contained in data
+  let bytesPerFrame = int(stream.sampleSize div 8 * stream.channels)
+  if bytesPerFrame > 0:
+    assert data.len*sizeof(T) mod bytesPerFrame == 0,
+        "Data size is not a multiple of the stream frame size"
+    result = int32(data.len*sizeof(T) div bytesPerFrame)
+  else:
+    result = 0 # Stream not loaded, raylib ignores the update
+
 proc updateSound*[T](sound: var Sound, data: openArray[T]) =
   ## Update sound buffer with new data (data and frame count should fit in sound)
-  updateSoundImpl(sound, cast[ptr UncheckedArray[T]](data), data.len.int32)
+  updateSoundImpl(sound, cast[ptr UncheckedArray[T]](data), frameCount(sound.stream, data))
 
 proc loadMusicStream*(fileName: string): Music =
   ## Load music stream from file
@@ -366,13 +395,19 @@ proc loadAudioStream*(sampleRate: uint32, sampleSize: uint32, channels: uint32):
 
 proc updateAudioStream*[T](stream: var AudioStream, data: openArray[T]) =
   ## Update audio stream buffers with data
-  updateAudioStreamImpl(stream, cast[ptr UncheckedArray[T]](data), data.len.int32)
+  updateAudioStreamImpl(stream, cast[ptr UncheckedArray[T]](data), frameCount(stream, data))
 
 proc drawTextCodepoints*(font: Font; codepoints: openArray[Rune]; position: Vector2;
     fontSize: float32; spacing: float32; tint: Color) =
   ## Draw multiple character (codepoint)
   drawTextCodepointsImpl(font, cast[ptr UncheckedArray[int32]](codepoints), codepoints.len.int32,
       position, fontSize, spacing, tint)
+
+proc measureTextCodepoints*(font: Font; codepoints: openArray[Rune]; fontSize: float32;
+    spacing: float32): Vector2 =
+  ## Measure string size for an existing array of codepoints for Font
+  measureTextCodepointsImpl(font, cast[ptr UncheckedArray[int32]](codepoints), codepoints.len.int32,
+      fontSize, spacing)
 
 proc loadModel*(fileName: string): Model =
   ## Load model from files (meshes and materials)

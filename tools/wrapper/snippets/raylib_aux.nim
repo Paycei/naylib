@@ -2,22 +2,25 @@
   rAudioProcessor {.importc, nodecl, bycopy.} = object
 
 type va_list {.importc: "va_list", header: "<stdarg.h>".} = object ## Only used by TraceLogCallback
-proc vsprintf(s: cstring, format: cstring, args: va_list) {.cdecl, importc: "vsprintf", header: "<stdio.h>".}
 
 type
   ConstCstring {.importc: "const char *".} = cstring
+  ConstPointer {.importc: "const void *".} = pointer
+
+proc vsnprintf(s: cstring, n: csize_t, format: ConstCstring, args: va_list): int32 {.
+    cdecl, importc: "vsnprintf", header: "<stdio.h>".}
 
 ## Callbacks to hook some internal functions
 ## WARNING: This callbacks are intended for advance users
 type
   TraceLogCallbackImpl = proc (logLevel: int32; text: ConstCstring; args: va_list) {.
       cdecl.}
-  LoadFileDataCallback* = proc (fileName: ConstCstring; bytesRead: ptr uint32): ptr UncheckedArray[uint8] {.
+  LoadFileDataCallback* = proc (fileName: ConstCstring; dataSize: ptr int32): ptr UncheckedArray[uint8] {.
       cdecl.} ## FileIO: Load binary data
-  SaveFileDataCallback* = proc (fileName: ConstCstring; data: pointer; bytesToWrite: uint32): bool {.
+  SaveFileDataCallback* = proc (fileName: ConstCstring; data: ConstPointer; dataSize: int32): bool {.
       cdecl.} ## FileIO: Save binary data
   LoadFileTextCallback* = proc (fileName: ConstCstring): cstring {.cdecl.} ## FileIO: Load text data
-  SaveFileTextCallback* = proc (fileName: ConstCstring; text: cstring): bool {.cdecl.} ## FileIO: Save text data
+  SaveFileTextCallback* = proc (fileName: ConstCstring; text: ConstCstring): bool {.cdecl.} ## FileIO: Save text data
   AudioCallback* = proc (bufferData: pointer, frames: uint32) {.cdecl.} ## Audio thread callback to request new data
 
 const

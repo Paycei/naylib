@@ -252,13 +252,12 @@ Marks functions with the `noSideEffect` pragma:
 ```ini
 [NoSideEffectsFuncs]
 CheckCollisionCircleLine
-UpdateModelAnimationBoneMatrices
 GenImageText
 GenImageFontAtlas
 GetMeshBoundingBox
 IsModelAnimationValid
-IsSoundReady
-IsMaterialReady
+IsSoundValid
+IsMaterialValid
 ```
 
 All other functions are assumed to have side effects.

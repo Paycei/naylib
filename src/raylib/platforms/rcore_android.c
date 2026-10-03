@@ -275,11 +275,35 @@ static int android_write(void *cookie, const char *buf, int size);
 static fpos_t android_seek(void *cookie, fpos_t offset, int whence);
 static int android_close(void *cookie);
 
-FILE *android_fopen(const char *fileName, const char *mode); // Replacement for fopen() -> Read-only!
+// WARNING: fopen() calls are intercepted via linker flag -Wl,--wrap=fopen: the linker renames
+// the original fopen -> __real_fopen and redirects all call sites to __wrap_fopen
+// The flag MUST be applied at every final link step that needs wrapping;
+// it has no effect when only building a static archive (.a)
+//
+// STATIC library (.a) — wrapping deferred to consumer's final link step:
+//   both raylib and consumer fopen calls are wrapped together in one link
+//       CMake: handled automatically — the PUBLIC flag propagates as INTERFACE_LINK_OPTIONS
+//              to the consumer's final link via target_link_libraries
+//        Make: pass -Wl,--wrap=fopen to the linker command producing the final artifact
+//   build.zig: pass -Wl,--wrap=fopen to the linker command producing the final artifact
+//      custom: pass -Wl,--wrap=fopen to the linker command producing the final artifact
+//
+// SHARED library (.so) — wrapping is self-contained:
+//   only fopen calls linked into the .so are wrapped; the consumer's own fopen calls
+//   are NOT wrapped unless the consumer also links with -Wl,--wrap=fopen independently
+//       CMake: handled automatically — CMakeLists.txt sets target_link_options(raylib PUBLIC
+//              -Wl,--wrap=fopen) which applies the flag to the .so link;
+//              only raylib internals are wrapped, app code requires a separate flag
+//        Make: handled automatically — src/Makefile sets LDFLAGS += -Wl,--wrap=fopen;
+//              only raylib internals are wrapped, app code requires a separate flag
+//   build.zig: NOT supported — std.Build has no dedicated linker wrap helper, the flag
+//              is not correctly applied at the .so link step
+//      custom: apply -Wl,--wrap=fopen to the linker command producing the .so
+FILE *__real_fopen(const char *fileName, const char *mode); // Real fopen, provided by the linker (--wrap=fopen)
+FILE *__wrap_fopen(const char *fileName, const char *mode); // Replacement for fopen()
+
 FILE *funopen(const void *cookie, int (*readfn)(void *, char *, int), int (*writefn)(void *, const char *, int),
               fpos_t (*seekfn)(void *, fpos_t, int), int (*closefn)(void *));
-
-#define fopen(name, mode) android_fopen(name, mode)
 
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
@@ -449,8 +473,7 @@ void SetWindowFocused(void)
 // Get native window handle
 void *GetWindowHandle(void)
 {
-    TRACELOG(LOG_WARNING, "GetWindowHandle() not implemented on target platform");
-    return NULL;
+    return (void *)platform.app->window; // Type: ANativeWindow*
 }
 
 // Get number of monitors
@@ -592,13 +615,13 @@ void rlShowCursor(void)
     CORE.Input.Mouse.cursorHidden = false;
 }
 
-// Hides mouse cursor
+// Hide mouse cursor
 void HideCursor(void)
 {
     CORE.Input.Mouse.cursorHidden = true;
 }
 
-// Enables cursor (unlock cursor)
+// Enable cursor (unlock cursor)
 void EnableCursor(void)
 {
     // Set cursor position in the middle
@@ -632,21 +655,30 @@ double GetTime(void)
     double time = 0.0;
     struct timespec ts = { 0 };
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    unsigned long long int nanoSeconds = (unsigned long long int)ts.tv_sec*1000000000LLU + (unsigned long long int)ts.tv_nsec;
+    unsigned long long nanoSeconds = (unsigned long long)ts.tv_sec*1000000000LLU + (unsigned long long)ts.tv_nsec;
 
-    time = (double)(nanoSeconds - CORE.Time.base)*1e-9;  // Elapsed time since InitTimer()
+    time = (double)(nanoSeconds - CORE.Time.base)*1e-9; // Elapsed time since InitTimer()
 
     return time;
 }
 
 // Open URL with default system browser (if available)
-// NOTE: This function is only safe to use if the provided URL is safe
-// A user could craft a malicious string performing another action
-// Avoid calling this function with user input non-validated strings
+// WARNING: This function is only safe to use if you control the URL given,
+// a user could craft a malicious string to perform and undesired action
+// NOTE: Some safety checks have been added to mitigate security issues
 void OpenURL(const char *url)
 {
     // Security check to (partially) avoid malicious code
-    if (strchr(url, '\'') != NULL) TRACELOG(LOG_WARNING, "SYSTEM: Provided URL could be potentially malicious, avoid [\'] character");
+    if ((strchr(url, '\'') != NULL) || (strchr(url, '\"') != NULL))
+    {
+        // Filter characters: ' and "
+        TRACELOG(LOG_WARNING, "SYSTEM: Provided URL could be potentially malicious, avoid [\'\"] characters");
+    }
+    else if ((strncmp(url, "http://", 7) != 0) && (strncmp(url, "https://", 8) != 0))
+    {
+        // Only allow URL starting with "http://" or "https://" protocols
+        TRACELOG(LOG_WARNING, "SYSTEM: Provided URL must start with 'http://' or 'https://' protocols");
+    }
     else
     {
         JNIEnv *env = NULL;
@@ -694,7 +726,6 @@ void SetGamepadVibration(int gamepad, float leftMotor, float rightMotor, float d
 void SetMousePosition(int x, int y)
 {
     CORE.Input.Mouse.currentPosition = (Vector2){ (float)x, (float)y };
-    CORE.Input.Mouse.previousPosition = CORE.Input.Mouse.currentPosition;
 }
 
 // Set mouse cursor
@@ -713,9 +744,9 @@ const char *GetKeyName(int key)
 // Register all input events
 void PollInputEvents(void)
 {
-#if defined(SUPPORT_GESTURES_SYSTEM)
+#if SUPPORT_GESTURES_SYSTEM
     // NOTE: Gestures update must be called every frame to reset gestures correctly
-    // because ProcessGestureEvent() is just called on an event, not every frame
+    // because ProcessGestureEvent() is called on an event, not every frame
     UpdateGestures();
 #endif
 
@@ -726,12 +757,12 @@ void PollInputEvents(void)
     for (int i = 0; i < MAX_KEYBOARD_KEYS; i++) CORE.Input.Keyboard.keyRepeatInFrame[i] = 0;
 
     // Reset last gamepad button/axis registered state
-    CORE.Input.Gamepad.lastButtonPressed = 0;       // GAMEPAD_BUTTON_UNKNOWN
+    CORE.Input.Gamepad.lastButtonPressed = 0; // GAMEPAD_BUTTON_UNKNOWN
     //CORE.Input.Gamepad.axisCount = 0;
 
     for (int i = 0; i < MAX_GAMEPADS; i++)
     {
-        if (CORE.Input.Gamepad.ready[i])     // Check if gamepad is available
+        if (CORE.Input.Gamepad.ready[i]) // Check if gamepad is available
         {
             // Register previous gamepad states
             for (int k = 0; k < MAX_GAMEPAD_BUTTONS; k++)
@@ -770,6 +801,7 @@ void PollInputEvents(void)
         if (platform.app->destroyRequested != 0)
         {
             CORE.Window.shouldClose = true;
+            break;
         }
     }
 }
@@ -1055,7 +1087,7 @@ static void AndroidCommandCallback(struct android_app *app, int32_t cmd)
                     InitGraphicsDevice();
 
                     // Initialize OpenGL context (states and resources)
-                    // NOTE: CORE.Window.currentFbo.width and CORE.Window.currentFbo.height not used, just stored as globals in rlgl
+                    // NOTE: CORE.Window.currentFbo.width and CORE.Window.currentFbo.height not used, stored as globals in rlgl
                     rlglInit(CORE.Window.currentFbo.width, CORE.Window.currentFbo.height);
 
                     // Setup default viewport
@@ -1065,11 +1097,11 @@ static void AndroidCommandCallback(struct android_app *app, int32_t cmd)
                     // Initialize hi-res timer
                     InitTimer();
 
-                #if defined(SUPPORT_MODULE_RTEXT) && defined(SUPPORT_DEFAULT_FONT)
+                #if SUPPORT_MODULE_RTEXT
                     // Load default font
                     // WARNING: External function: Module required: rtext
                     LoadFontDefault();
-                    #if defined(SUPPORT_MODULE_RSHAPES)
+                    #if SUPPORT_MODULE_RSHAPES
                     // Set font white rectangle for shapes drawing, so shapes and text can be batched together
                     // WARNING: rshapes module is required, if not available, default internal white rectangle is used
                     rlRectangle rec = GetFontDefault().recs[95];
@@ -1085,7 +1117,7 @@ static void AndroidCommandCallback(struct android_app *app, int32_t cmd)
                     }
                     #endif
                 #else
-                    #if defined(SUPPORT_MODULE_RSHAPES)
+                    #if SUPPORT_MODULE_RSHAPES
                     // Set default texture and rectangle to be used for shapes drawing
                     // NOTE: rlgl default texture is a 1x1 pixel UNCOMPRESSED_R8G8B8A8
                     Texture2D texture = { rlGetTextureIdDefault(), 1, 1, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
@@ -1249,27 +1281,28 @@ static int32_t AndroidInputCallback(struct android_app *app, AInputEvent *event)
         int32_t keycode = AKeyEvent_getKeyCode(event);
         //int32_t AKeyEvent_getMetaState(event);
 
-        // Handle gamepad button presses and releases
-        // NOTE: Skip gamepad handling if this is a keyboard event, as some devices
-        // report both AINPUT_SOURCE_KEYBOARD and AINPUT_SOURCE_GAMEPAD flags
-        if ((FLAG_IS_SET(source, AINPUT_SOURCE_JOYSTICK) ||
-             FLAG_IS_SET(source, AINPUT_SOURCE_GAMEPAD)) &&
-            !FLAG_IS_SET(source, AINPUT_SOURCE_KEYBOARD))
+        // Handle gamepad button presses and releases. AOSP stamps the
+        // KEYBOARD source bit on every key event from a gamepad, so
+        // discriminate on the keycode rather than gating on source bits.
+        if (FLAG_IS_SET(source, AINPUT_SOURCE_JOYSTICK) ||
+            FLAG_IS_SET(source, AINPUT_SOURCE_GAMEPAD))
         {
-            // Assuming a single gamepad, "detected" on its input event
-            CORE.Input.Gamepad.ready[0] = true;
-
             GamepadButton button = AndroidTranslateGamepadButton(keycode);
 
-            if (button == GAMEPAD_BUTTON_UNKNOWN) return 1;
-
-            if (AKeyEvent_getAction(event) == AKEY_EVENT_ACTION_DOWN)
+            if (button != GAMEPAD_BUTTON_UNKNOWN)
             {
-                CORE.Input.Gamepad.currentButtonState[0][button] = 1;
-            }
-            else CORE.Input.Gamepad.currentButtonState[0][button] = 0;  // Key up
+                // Assuming a single gamepad, "detected" on its input event
+                CORE.Input.Gamepad.ready[0] = true;
 
-            return 1; // Handled gamepad button
+                if (AKeyEvent_getAction(event) == AKEY_EVENT_ACTION_DOWN)
+                {
+                    CORE.Input.Gamepad.currentButtonState[0][button] = 1;
+                }
+                else CORE.Input.Gamepad.currentButtonState[0][button] = 0;  // Key up
+
+                return 1; // Handled gamepad button
+            }
+            // Unknown keycode: fall through to the keyboard handler below.
         }
 
         KeyboardKey key = ((keycode > 0) && (keycode < KEYCODE_MAP_SIZE))? mapKeycode[keycode] : KEY_NULL;
@@ -1299,7 +1332,7 @@ static int32_t AndroidInputCallback(struct android_app *app, AInputEvent *event)
         }
         else if ((keycode == AKEYCODE_BACK) || (keycode == AKEYCODE_MENU))
         {
-            // Eat BACK_BUTTON and AKEYCODE_MENU, just do nothing... and don't let to be handled by OS!
+            // Eat BACK_BUTTON and AKEYCODE_MENU, do nothing... and don't let to be handled by OS!
             return 1;
         }
         else if ((keycode == AKEYCODE_VOLUME_UP) || (keycode == AKEYCODE_VOLUME_DOWN))
@@ -1347,7 +1380,7 @@ static int32_t AndroidInputCallback(struct android_app *app, AInputEvent *event)
         }
     }
 
-#if defined(SUPPORT_GESTURES_SYSTEM)
+#if SUPPORT_GESTURES_SYSTEM
     GestureEvent gestureEvent = { 0 };
 
     gestureEvent.pointCount = 0;
@@ -1524,25 +1557,20 @@ static void SetupFramebuffer(int width, int height)
     }
 }
 
-// Replacement for fopen()
+// Replacement for fopen(), used as linker wrap entry point (-Wl,--wrap=fopen)
 // REF: https://developer.android.com/ndk/reference/group/asset
-FILE *android_fopen(const char *fileName, const char *mode)
+__attribute__((visibility("default"))) FILE *__wrap_fopen(const char *fileName, const char *mode)
 {
     FILE *file = NULL;
-    
+
+    // NOTE: AAsset provides access to read-only asset, write operations use regular fopen
     if (mode[0] == 'w')
     {
-        // NOTE: fopen() is mapped to android_fopen() that only grants read access to
-        // assets directory through AAssetManager but it could be required to write data
-        // using the standard stdio FILE access functions
-        // REF: https://stackoverflow.com/questions/11294487/android-writing-saving-files-from-native-code-only
-        #undef fopen
-        file = fopen(TextFormat("%s/%s", platform.app->activity->internalDataPath, fileName), mode);
-        #define fopen(name, mode) android_fopen(name, mode)
+        file = __real_fopen(TextFormat("%s/%s", platform.app->activity->internalDataPath, fileName), mode);
+        if (file == NULL) file = __real_fopen(fileName, mode);
     }
     else
     {
-        // NOTE: AAsset provides access to read-only asset
         AAsset *asset = AAssetManager_open(platform.app->activity->assetManager, fileName, AASSET_MODE_UNKNOWN);
 
         if (asset != NULL)
@@ -1552,14 +1580,12 @@ FILE *android_fopen(const char *fileName, const char *mode)
         }
         else
         {
-            #undef fopen
-            // Just do a regular open if file is not found in the assets
-            file = fopen(TextFormat("%s/%s", platform.app->activity->internalDataPath, fileName), mode);
-            if (file == NULL) file = fopen(fileName, mode);
-            #define fopen(name, mode) android_fopen(name, mode)
+            // Do a regular open if file is not found in the assets
+            file = __real_fopen(TextFormat("%s/%s", platform.app->activity->internalDataPath, fileName), mode);
+            if (file == NULL) file = __real_fopen(fileName, mode);
         }
     }
-    
+
     return file;
 }
 

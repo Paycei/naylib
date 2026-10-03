@@ -111,10 +111,15 @@ proc processAliasFlags(alias: var AliasInfo, config: ConfigData) =
   if shouldMarkAsDistinct(alias.name, config):
     alias.flags.incl isDistinct
 
+proc updateAliasType(alias: var AliasInfo, config: ConfigData) =
+  let pointerType = if isArray(alias.name, config): ptArray else: ptPtr
+  updateType(alias.`type`, alias.name, pointerType, config)
+
 proc processAliases(ctx: var ApiContext, config: ConfigData) =
   # Execute the processing stages in order
   for alias in mitems(ctx.api.aliases):
     processAliasFlags(alias, config)
+    updateAliasType(alias, config)
 
 proc processStructFlags(obj: var StructInfo, config: ConfigData) =
   if shouldMarkAsComplete(obj.name, config):

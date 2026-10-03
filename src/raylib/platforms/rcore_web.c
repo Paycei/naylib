@@ -54,8 +54,8 @@
 //----------------------------------------------------------------------------------
 // Defines and Macros
 //----------------------------------------------------------------------------------
-// TODO: HACK: Added flag if not provided by GLFW when using external library
-// Latest GLFW release (GLFW 3.3.8) does not implement this flag, it was added for 3.4.0-dev
+// NOTE: Added flag if not provided by GLFW when using external library
+// WARNING: Latest GLFW release (GLFW 3.3.8) does not implement this flag, it was added for 3.4.0-dev
 #if !defined(GLFW_MOUSE_PASSTHROUGH)
     #define GLFW_MOUSE_PASSTHROUGH      0x0002000D
 #endif
@@ -76,8 +76,7 @@ typedef struct {
 
     char canvasId[64];                  // Keep current canvas id where wasm app is running
                                         // NOTE: Useful when trying to run multiple wasms in different canvases in same webpage
-
-#if defined(GRAPHICS_API_OPENGL_11_SOFTWARE)
+#if defined(GRAPHICS_API_OPENGL_SOFTWARE)
     unsigned int *pixels;               // Pointer to pixel data buffer (RGBA 32bit format)
 #endif
 } PlatformData;
@@ -801,34 +800,103 @@ void SetClipboardText(const char *text)
     else EM_ASM({ navigator.clipboard.writeText(UTF8ToString($0)); }, text);
 }
 
+// Async EM_JS to be able to await clickboard read asynchronous function
+EM_ASYNC_JS(void, RequestClipboardData, (void), {
+    if (navigator.clipboard && window.isSecureContext)
+    {
+        let items = await navigator.clipboard.read();
+        for (const item of items)
+        {
+            // Check if this item contains plain text or image
+            if (item.types.includes("text/plain"))
+            {
+                const blob = await item.getType("text/plain");
+                const text = await blob.text();
+                window._lastClipboardString = text;
+            }
+            else if (item.types.find(t => t.startsWith("image/")))
+            {
+                const blob = await item.getType(item.types.find(t => t.startsWith("image/")));
+                const bitmap = await createImageBitmap(blob);
+
+                const canvas = document.createElement('canvas');
+                canvas.width = bitmap.width;
+                canvas.height = bitmap.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(bitmap, 0, 0);
+
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+                // Store image and data for the Fetch function
+                window._lastImgWidth = canvas.width;
+                window._lastImgHeight = canvas.height;
+                window._lastImgData = imgData;
+            }
+        }
+    }
+    else console.warn("Clipboard read() requires HTTPS/Localhost");
+});
+
+// Returns the string created by RequestClipboardData from JS memory to Emscripten C memory
+EM_JS(char *, GetLastPastedText, (void), {
+    var str = window._lastClipboardString || "";
+    var length = lengthBytesUTF8(str) + 1;
+    if (length > 1)
+    {
+        var ptr = _malloc(length);
+        stringToUTF8(str, ptr, length);
+        return ptr;
+    }
+    return 0;
+});
+
+// Returns the image created by RequestClipboardData from JS memory to Emscripten C memory
+EM_JS(unsigned char *, GetLastPastedImage, (int *width, int *height), {
+    if (window._lastImgData)
+    {
+        const data = window._lastImgData;
+        if (data.length > 0)
+        {
+            const ptr = _malloc(data.length);
+            HEAPU8.set(data, ptr);
+
+            // Set the width and height via the pointers passed from C
+            // HEAP32 handles the 4-byte integers
+            if (width)  setValue(width, window._lastImgWidth,  'i32');
+            if (height) setValue(height, window._lastImgHeight, 'i32');
+
+            // Clear the JS buffer so there is no need to fetch the same image twice
+            window._lastImgData = null;
+
+            return ptr;
+        }
+    }
+
+    return 0;
+});
+
 // Get clipboard text content
 // NOTE: returned string is allocated and freed by GLFW
 const char *GetClipboardText(void)
 {
-/*
-    // Accessing clipboard data from browser is tricky due to security reasons
-    // The method to use is navigator.clipboard.readText() but this is an asynchronous method
-    // that will return at some moment after the function is called with the required data
-    emscripten_run_script_string("navigator.clipboard.readText() \
-        .then(text => { document.getElementById('clipboard').innerText = text; console.log('Pasted content: ', text); }) \
-        .catch(err => { console.error('Failed to read clipboard contents: ', err); });"
-    );
-
-    // The main issue is getting that data, one approach could be using ASYNCIFY and wait
-    // for the data but it requires adding Asyncify emscripten library on compilation
-
-    // Another approach could be just copy the data in a HTML text field and try to retrieve it
-    // later on if available... and clean it for future accesses
-*/
-    return NULL;
+    RequestClipboardData();
+    return GetLastPastedText();
 }
 
 // Get clipboard image
 Image GetClipboardImage(void)
 {
     Image image = { 0 };
-
-    TRACELOG(LOG_WARNING, "GetClipboardImage() not implemented on target platform");
+    int w = 0, h = 0;
+    RequestClipboardData();
+    unsigned char* data = GetLastPastedImage(&w, &h);
+    if (data != NULL) {
+        image.data = data;
+        image.width = w;
+        image.height = h;
+        image.mipmaps = 1;
+        image.format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
+    }
 
     return image;
 }
@@ -844,7 +912,7 @@ void rlShowCursor(void)
     }
 }
 
-// Hides mouse cursor
+// Hide mouse cursor
 void HideCursor(void)
 {
     if (!CORE.Input.Mouse.cursorHidden)
@@ -855,7 +923,7 @@ void HideCursor(void)
     }
 }
 
-// Enables cursor (unlock cursor)
+// Enable cursor (unlock cursor)
 void EnableCursor(void)
 {
     emscripten_exit_pointerlock();
@@ -866,7 +934,7 @@ void EnableCursor(void)
     // NOTE: CORE.Input.Mouse.cursorLocked handled by EmscriptenPointerlockCallback()
 }
 
-// Disables cursor (lock cursor)
+// Disable cursor (lock cursor)
 void DisableCursor(void)
 {
     emscripten_request_pointerlock(platform.canvasId, 1);
@@ -880,7 +948,7 @@ void DisableCursor(void)
 // Swap back buffer with front buffer (screen drawing)
 void SwapScreenBuffer(void)
 {
-#if defined(GRAPHICS_API_OPENGL_11_SOFTWARE)
+#if defined(GRAPHICS_API_OPENGL_SOFTWARE)
     // Update framebuffer
     rlCopyFramebuffer(0, 0, CORE.Window.render.width, CORE.Window.render.height, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, platform.pixels);
 
@@ -917,6 +985,7 @@ void SwapScreenBuffer(void)
 double GetTime(void)
 {
     double time = glfwGetTime();   // Elapsed time since glfwInit()
+
     return time;
 }
 
@@ -978,7 +1047,6 @@ void SetGamepadVibration(int gamepad, float leftMotor, float rightMotor, float d
 void SetMousePosition(int x, int y)
 {
     CORE.Input.Mouse.currentPosition = (Vector2){ (float)x, (float)y };
-    CORE.Input.Mouse.previousPosition = CORE.Input.Mouse.currentPosition;
 
     if (CORE.Input.Mouse.cursorLocked) CORE.Input.Mouse.lockedPosition = CORE.Input.Mouse.currentPosition;
 
@@ -1007,9 +1075,9 @@ const char *GetKeyName(int key)
 // Register all input events
 void PollInputEvents(void)
 {
-#if defined(SUPPORT_GESTURES_SYSTEM)
+#if SUPPORT_GESTURES_SYSTEM
     // NOTE: Gestures update must be called every frame to reset gestures correctly
-    // because ProcessGestureEvent() is just called on an event, not every frame
+    // because ProcessGestureEvent() is called on an event, not every frame
     UpdateGestures();
 #endif
 
@@ -1018,7 +1086,7 @@ void PollInputEvents(void)
     CORE.Input.Keyboard.charPressedQueueCount = 0;
 
     // Reset last gamepad button/axis registered state
-    CORE.Input.Gamepad.lastButtonPressed = 0;       // GAMEPAD_BUTTON_UNKNOWN
+    CORE.Input.Gamepad.lastButtonPressed = 0; // GAMEPAD_BUTTON_UNKNOWN
     //CORE.Input.Gamepad.axisCount = 0;
 
     // Keyboard/Mouse input polling (automatically managed by GLFW3 through callback)
@@ -1060,7 +1128,7 @@ void PollInputEvents(void)
         // Register previous gamepad button states
         for (int k = 0; k < MAX_GAMEPAD_BUTTONS; k++) CORE.Input.Gamepad.previousButtonState[i][k] = CORE.Input.Gamepad.currentButtonState[i][k];
 
-        EmscriptenGamepadEvent gamepadState;
+        EmscriptenGamepadEvent gamepadState = { 0 };
 
         int result = emscripten_get_gamepad_status(i, &gamepadState);
 
@@ -1093,7 +1161,7 @@ void PollInputEvents(void)
                     default: break;
                 }
 
-                if (button + 1 != 0)   // Check for valid button
+                if (button + 1 != 0) // Check for valid button
                 {
                     if (gamepadState.digitalButton[j] == 1)
                     {
@@ -1210,7 +1278,7 @@ int InitPlatform(void)
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3); // Choose OpenGL minor version (just hint)
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
         glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_FALSE);
-#if defined(RLGL_ENABLE_OPENGL_DEBUG_CONTEXT)
+#if RLGL_ENABLE_OPENGL_DEBUG_CONTEXT
         glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE); // Enable OpenGL Debug Context
 #endif
     }
@@ -1236,7 +1304,7 @@ int InitPlatform(void)
     // Init fullscreen toggle required var:
     platform.ourFullscreen = false;
 
-#if defined(GRAPHICS_API_OPENGL_11_SOFTWARE)
+#if defined(GRAPHICS_API_OPENGL_SOFTWARE)
     // Avoid creating a WebGL canvas, avoid calling glfwCreateWindow()
     emscripten_set_canvas_element_size(platform.canvasId, CORE.Window.screen.width, CORE.Window.screen.height);
     EM_ASM({
@@ -1245,9 +1313,8 @@ int InitPlatform(void)
     }, platform.canvasId);
 
     // Load memory framebuffer with desired screen size
-    // NOTE: Despite using a software framebuffer for blitting, GLFW still creates a WebGL canvas,
+    // WARNING: Despite using a software framebuffer for blitting, GLFW still creates a WebGL canvas,
     // but it is not being used, on SwapScreenBuffer() the pure software renderer is used
-    // TODO: Consider requesting another type of canvas, not a WebGL one --> Replace GLFW-web by Emscripten?
     platform.pixels = (unsigned int *)RL_CALLOC(CORE.Window.screen.width*CORE.Window.screen.height, sizeof(unsigned int));
 #else
     if (FLAG_IS_SET(CORE.Window.flags, FLAG_FULLSCREEN_MODE))
@@ -1255,7 +1322,7 @@ int InitPlatform(void)
         // Remember center for switchinging from fullscreen to window
         if ((CORE.Window.screen.height == CORE.Window.display.height) && (CORE.Window.screen.width == CORE.Window.display.width))
         {
-            // If screen width/height equal to the display, it's not possible to 
+            // If screen width/height equal to the display, it's not possible to
             // calculate the window position for toggling full-screened/windowed
             CORE.Window.position.x = CORE.Window.display.width/4;
             CORE.Window.position.y = CORE.Window.display.height/4;
@@ -1338,7 +1405,9 @@ int InitPlatform(void)
     glfwSetCursorEnterCallback(platform.handle, MouseEnterCallback);
 
     glfwMakeContextCurrent(platform.handle);
-    result = true; // TODO: WARNING: glfwGetError(NULL); symbol can not be found in Web
+
+    // WARNING: result = glfwGetError(NULL), symbol can not be found in GLFW Web
+    result = true;
 
     // Check context activation
     if (result == true) //(result != GLFW_NO_WINDOW_CONTEXT) && (result != GLFW_PLATFORM_ERROR))
@@ -1353,7 +1422,8 @@ int InitPlatform(void)
         CORE.Window.currentFbo.width = fbWidth;
         CORE.Window.currentFbo.height = fbHeight;
 
-        TRACELOG(LOG_INFO, "DISPLAY: Device initialized successfully");
+        TRACELOG(LOG_INFO, "DISPLAY: Device initialized successfully %s",
+            FLAG_IS_SET(CORE.Window.flags, FLAG_WINDOW_HIGHDPI)? "(HighDPI)" : "");
         TRACELOG(LOG_INFO, "    > Display size: %i x %i", CORE.Window.display.width, CORE.Window.display.height);
         TRACELOG(LOG_INFO, "    > Screen size:  %i x %i", CORE.Window.screen.width, CORE.Window.screen.height);
         TRACELOG(LOG_INFO, "    > Render size:  %i x %i", CORE.Window.render.width, CORE.Window.render.height);
@@ -1475,15 +1545,15 @@ static void WindowContentScaleCallback(GLFWwindow *window, float scalex, float s
 // GLFW3: Called on windows minimized/restored
 static void WindowIconifyCallback(GLFWwindow *window, int iconified)
 {
-    if (iconified) FLAG_SET(CORE.Window.flags, FLAG_WINDOW_MINIMIZED);   // The window was iconified
-    else FLAG_CLEAR(CORE.Window.flags, FLAG_WINDOW_MINIMIZED);           // The window was restored
+    if (iconified) FLAG_SET(CORE.Window.flags, FLAG_WINDOW_MINIMIZED);  // The window was iconified
+    else FLAG_CLEAR(CORE.Window.flags, FLAG_WINDOW_MINIMIZED);          // The window was restored
 }
 
 // GLFW3: Called on windows get/lose focus
 static void WindowFocusCallback(GLFWwindow *window, int focused)
 {
-    if (focused) FLAG_SET(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED);   // The window was focused
-    else FLAG_CLEAR(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED);           // The window lost focus
+    if (focused) FLAG_CLEAR(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED);  // The window was focused
+    else FLAG_SET(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED);            // The window lost focus
 }
 
 // GLFW3: Called on file-drop over the window
@@ -1509,7 +1579,7 @@ static void WindowDropCallback(GLFWwindow *window, int count, const char **paths
         for (unsigned int i = 0; i < CORE.Window.dropFileCount; i++)
         {
             CORE.Window.dropFilepaths[i] = (char *)RL_CALLOC(MAX_FILEPATH_LENGTH, sizeof(char));
-            strncpy(CORE.Window.dropFilepaths[i], paths[i], MAX_FILEPATH_LENGTH - 1);
+            snprintf(CORE.Window.dropFilepaths[i], MAX_FILEPATH_LENGTH, "%s", paths[i]);
         }
     }
 }
@@ -1564,7 +1634,7 @@ static void MouseButtonCallback(GLFWwindow *window, int button, int action, int 
     CORE.Input.Mouse.currentButtonState[button] = action;
     CORE.Input.Touch.currentTouchState[button] = action;
 
-#if defined(SUPPORT_GESTURES_SYSTEM) && defined(SUPPORT_MOUSE_GESTURES)
+#if SUPPORT_GESTURES_SYSTEM && SUPPORT_MOUSE_GESTURES
     // Process mouse events as touches to be able to use mouse-gestures
     GestureEvent gestureEvent = { 0 };
 
@@ -1605,7 +1675,7 @@ static void MouseMoveCallback(GLFWwindow *window, double x, double y)
         CORE.Input.Touch.position[0] = CORE.Input.Mouse.currentPosition;
     }
 
-#if defined(SUPPORT_GESTURES_SYSTEM) && defined(SUPPORT_MOUSE_GESTURES)
+#if SUPPORT_GESTURES_SYSTEM && SUPPORT_MOUSE_GESTURES
     // Process mouse events as touches to be able to use mouse-gestures
     GestureEvent gestureEvent = { 0 };
 
@@ -1748,7 +1818,7 @@ static EM_BOOL EmscriptenTouchCallback(int eventType, const EmscriptenTouchEvent
         CORE.Input.Mouse.currentPosition.y = CORE.Input.Touch.position[0].y;
     }
 
-#if defined(SUPPORT_GESTURES_SYSTEM)
+#if SUPPORT_GESTURES_SYSTEM
     GestureEvent gestureEvent = { 0 };
     gestureEvent.pointCount = CORE.Input.Touch.pointCount;
 

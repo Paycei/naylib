@@ -1,6 +1,6 @@
 # Package
 
-version     = "26.08.0"
+version     = "6.1.0"
 author      = "Antonis Geralis"
 description = "Raylib Nim wrapper"
 license     = "MIT"
@@ -54,6 +54,7 @@ after install:
 
 task test, "Runs the test suite":
   localInstallTask()
+  exec "nim c -r -d:release tests/headless_api.nim"
   exec "nim c -d:release tests/basic_window.nim"
   when defined(linux):
     exec "nim c -d:release -d:wayland tests/basic_window.nim"

@@ -4,7 +4,7 @@ export Vector2, Vector3, Matrix, Camera3D, Camera, CameraProjection, CameraMode
 const
   CameraMoveSpeed* = 5.4'f32 # Units per second
   CameraRotationSpeed* = 0.03'f32
-  CameraPanSpeed* = 0.2'f32
+  CameraPanSpeed* = 2.0'f32
 
   # Camera mouse movement sensitivity
   CameraMouseMoveSensitivity* = 0.003'f32

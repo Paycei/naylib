@@ -35,6 +35,9 @@ ChangeDirectory            os.setCurrentDir
 MakeDirectory              os.createDir
 GetFileModTime             os.getLastModificationTime
 IsPathFile                 os.getFileInfo
+IsPathDirectory            os.dirExists
+IsPathAbsolute             os.isAbsolute
+IsFileHidden               os.isHidden
 IsFileNameValid            os.isValidFilename
 LoadDirectoryFiles         os.walkDirRec
 LoadDirectoryFilesEx       os.walkDirRecFilter
@@ -43,32 +46,35 @@ LoadDirectoryFilesEx       os.walkDirRecFilter
 Text strings management functions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-================== ========================================== ================
-raylib function    Native alternative                         Notes
-================== ========================================== ================
-TextCopy           assignment
-TextIsEqual        `==`
-TextLength         len
-TextFormat         strutils.format, strformat.`&`
-TextSubtext        substr
-TextReplace        strutils.replace, strutils.multiReplace
-TextRemoveSpaces   strutils.strip
-GetTextBetween     None                                       Write a function
-TextReplaceBetween None                                       Write a function
-TextInsert         insert
-TextJoin           strutils.join
-TextSplit          strutils.split, unicode.split
-LoadTextLines      strutils.splitLines
-TextAppend         add
-TextFindIndex      strutils.find
-TextToUpper        strutils.toUpperAscii, unicode.toUpper
-TextToLower        strutils.toLowerAscii, unicode.toLower
-TextToPascal       None                                       Write a function
-TextToInteger      strutils.parseInt
-TextToFloat        strutils.parseFloat
-TextToSnake        None                                       Write a function
-TextToCamel        None                                       Write a function
-================== ========================================== ================
+======================= ========================================== ================
+raylib function         Native alternative                         Notes
+======================= ========================================== ================
+TextCopy                assignment
+TextIsEqual             `==`
+TextLength              len
+TextFormat              strutils.format, strformat.`&`
+TextSubtext             substr
+TextReplace             strutils.replace, strutils.multiReplace
+TextReplaceAlloc        strutils.replace, strutils.multiReplace
+TextRemoveSpaces        strutils.strip
+GetTextBetween          None                                       Write a function
+TextReplaceBetween      None                                       Write a function
+TextReplaceBetweenAlloc None                                       Write a function
+TextInsert              insert
+TextInsertAlloc         insert
+TextJoin                strutils.join
+TextSplit               strutils.split, unicode.split
+LoadTextLines           strutils.splitLines
+TextAppend              add
+TextFindIndex           strutils.find
+TextToUpper             strutils.toUpperAscii, unicode.toUpper
+TextToLower             strutils.toLowerAscii, unicode.toLower
+TextToPascal            None                                       Write a function
+TextToInteger           strutils.parseInt
+TextToFloat             strutils.parseFloat
+TextToSnake             None                                       Write a function
+TextToCamel             None                                       Write a function
+======================= ========================================== ================
 
 Text codepoints management functions (unicode characters)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -219,9 +219,9 @@ proc alloc*(x: var MemPool, size: Natural): pointer =
         interlink(newBlock, b.header.next)
         interlink(b, newBlock)
         rebin(x, newBlock)
-        inc x.occupied, chunkSize
-        assert b.header.size >= size + MemAlign
-        b.header.used = true
+      inc x.occupied, chunkSize
+      assert b.header.size >= size + MemAlign
+      b.header.used = true
       result = cast[pointer](cast[uint](b) + MemAlign)
 
 proc free*(x: var MemPool, p: pointer) =
@@ -382,15 +382,15 @@ proc allocFront*(s: var BiStack; size: Natural): pointer {.inline.} =
 
 proc alignedAllocBack*(s: var BiStack, size, align: Natural): pointer =
   result = nil
-  let
-    currAddr = cast[uint](s.buf) + s.front.uint
-    alignedAddr = alignUp(currAddr, align)
-    padding = int(alignedAddr - currAddr)
-  if s.back - padding - size >= s.front:
-    # Stack allocator is out of memory
-    s.back = s.back - size - padding
-    result = cast[pointer](alignedAddr)
-    zeroMem(result, size)
+  if size <= s.back - s.front:
+    let
+      base = cast[uint](s.buf)
+      alignedAddr = alignDown(base + uint(s.back - size), align)
+    # Stack allocator is out of memory if the aligned block crosses the front
+    if alignedAddr >= base + s.front.uint:
+      s.back = int(alignedAddr - base)
+      result = cast[pointer](alignedAddr)
+      zeroMem(result, size)
 
 proc allocBack*(s: var BiStack; size: Natural): pointer {.inline.} =
   alignedAllocBack(s, size, DefaultAlignment)

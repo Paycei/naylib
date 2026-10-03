@@ -1,9 +1,9 @@
-from std/strutils import addf, toHex
+from std/strutils import toHex, toUpperAscii
 from std/unicode import Rune
 from std/syncio import writeFile
+from std/typetraits import supportsCopyMem
 import std/[assertions, paths]
 import naylib/private/config
-const raylibDir = currentSourcePath().Path.parentDir / Path"raylib"
 
 when defined(mingw):
   import std/private/globs
@@ -11,6 +11,8 @@ when defined(mingw):
   func `/`(head, tail: Path): Path {.inline.} =
     joinPath(head.string, tail.string).nativeToUnixPath.Path
   {.passC: "-I/usr/x86_64-w64-mingw32/include".}
+
+const raylibDir = currentSourcePath().Path.parentDir / Path"raylib"
 
 {.passC: "-I" & raylibDir.string.}
 {.passC: "-I" & string(raylibDir / Path"external/glfw/include").}
@@ -51,6 +53,8 @@ elif defined(android):
   {.passL: "-Wl,-soname,lib" & ProjectLibraryName & ".so -Wl,--exclude-libs,libatomic.a".}
   {.passL: "-Wl,--build-id -Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now -Wl,--warn-shared-textrel".}
   {.passL: "-Wl,--fatal-warnings -u ANativeActivity_onCreate -Wl,-no-undefined".}
+  # Route all fopen() calls through raylib's APK asset loader
+  {.passL: "-Wl,--wrap=fopen".}
   {.passL: "-llog -landroid -lEGL -lGLESv2 -lOpenSLES -lc -lm -ldl".}
 
 elif defined(drm):
@@ -75,7 +79,7 @@ else:
     else: {.passL: "-static-libgcc -lopengl32 -lgdi32 -lwinmm".}
 
   elif defined(macosx):
-    {.passL: "-framework OpenGL -framework Cocoa -framework IOKit -framework CoreAudio -framework CoreVideo".}
+    {.passL: "-framework OpenGL -framework Cocoa -framework IOKit -framework CoreAudio -framework CoreVideo -framework QuartzCore".}
 
   else:
     when defined(linux):
@@ -133,9 +137,9 @@ when defined(android):
   {.compile: AndroidNdk.Path / Path"sources/android/native_app_glue/android_native_app_glue.c".}
 
 const
-  RaylibVersion* = (5, 5, 0)
+  RaylibVersion* = (6, 1, 0)
 
   # Taken from raylib/src/config.h
   MaxShaderLocations* = 32 ## Maximum number of shader locations supported
   MaxMaterialMaps* = 12 ## Maximum number of shader maps supported
-  MaxMeshVertexBuffers* = 9 ## Maximum vertex buffers (VBO) per mesh
+  MaxMeshVertexBuffers* = when NaylibSupportGpuSkinning: 9 else: 7 ## Maximum vertex buffers (VBO) per mesh

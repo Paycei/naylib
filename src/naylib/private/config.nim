@@ -12,7 +12,7 @@
 {.passC: "-DEXTERNAL_CONFIG_FLAGS".}
 
 # Module selection - Some modules could be avoided
-# Mandatory modules: rcore, rlgl, utils
+# Mandatory modules: rcore, rlgl
 const NaylibSupportModuleRshapes {.booldefine.} = true
 when NaylibSupportModuleRshapes:
   {.passC: "-DSUPPORT_MODULE_RSHAPES=1".}
@@ -36,6 +36,11 @@ when NaylibSupportModuleRaudio:
 # ----------------------------------------------------------------------------------------
 # Module: rcore - Configuration Flags
 # ----------------------------------------------------------------------------------------
+
+# Show TRACELOG() output messages
+const NaylibSupportTracelog {.booldefine.} = true
+when NaylibSupportTracelog:
+  {.passC: "-DSUPPORT_TRACELOG=1".}
 
 # Camera module is included (rcamera.h) and multiple predefined cameras are available
 const NaylibSupportCameraSystem {.booldefine.} = true
@@ -116,11 +121,6 @@ const NaylibRlShowGlDetailsInfo {.booldefine.} = false
 when NaylibRlShowGlDetailsInfo:
   {.passC: "-DRLGL_SHOW_GL_DETAILS_INFO=1".}
 
-# GPU skinning support
-const NaylibRlSupportMeshGpuSkinning {.booldefine.} = true
-when NaylibRlSupportMeshGpuSkinning:
-  {.passC: "-DRL_SUPPORT_MESH_GPU_SKINNING=1".}
-
 # ----------------------------------------------------------------------------------------
 # Module: rshapes - Configuration Flags
 # ----------------------------------------------------------------------------------------
@@ -159,6 +159,10 @@ const NaylibSupportFileFormatQoi {.booldefine.} = true
 when NaylibSupportFileFormatQoi:
   {.passC: "-DSUPPORT_FILEFORMAT_QOI=1".}
 
+const NaylibSupportFileFormatPep {.booldefine.} = false
+when NaylibSupportFileFormatPep:
+  {.passC: "-DSUPPORT_FILEFORMAT_PEP=1".}
+
 const NaylibSupportFileFormatPsd {.booldefine.} = false
 when NaylibSupportFileFormatPsd:
   {.passC: "-DSUPPORT_FILEFORMAT_PSD=1".}
@@ -174,6 +178,10 @@ when NaylibSupportFileFormatHdr:
 const NaylibSupportFileFormatPic {.booldefine.} = false
 when NaylibSupportFileFormatPic:
   {.passC: "-DSUPPORT_FILEFORMAT_PIC=1".}
+
+const NaylibSupportFileFormatPnm {.booldefine.} = false
+when NaylibSupportFileFormatPnm:
+  {.passC: "-DSUPPORT_FILEFORMAT_PNM=1".}
 
 const NaylibSupportFileFormatKtx {.booldefine.} = false
 when NaylibSupportFileFormatKtx:
@@ -191,7 +199,7 @@ const NaylibSupportFileFormatPvr {.booldefine.} = false
 when NaylibSupportFileFormatPvr:
   {.passC: "-DSUPPORT_FILEFORMAT_PVR=1".}
 
-# Image manipulation support
+# Image export and generation support
 const NaylibSupportImageExport {.booldefine.} = true
 when NaylibSupportImageExport:
   {.passC: "-DSUPPORT_IMAGE_EXPORT=1".}
@@ -200,17 +208,9 @@ const NaylibSupportImageGeneration {.booldefine.} = true
 when NaylibSupportImageGeneration:
   {.passC: "-DSUPPORT_IMAGE_GENERATION=1".}
 
-const NaylibSupportImageManipulation {.booldefine.} = true
-when NaylibSupportImageManipulation:
-  {.passC: "-DSUPPORT_IMAGE_MANIPULATION=1".}
-
 # ----------------------------------------------------------------------------------------
 # Module: rtext - Configuration Flags
 # ----------------------------------------------------------------------------------------
-
-const NaylibSupportDefaultFont {.booldefine.} = true
-when NaylibSupportDefaultFont:
-  {.passC: "-DSUPPORT_DEFAULT_FONT=1".}
 
 const NaylibSupportFileFormatTtf {.booldefine.} = true
 when NaylibSupportFileFormatTtf:
@@ -223,18 +223,6 @@ when NaylibSupportFileFormatFnt:
 const NaylibSupportFileFormatBdf {.booldefine.} = false
 when NaylibSupportFileFormatBdf:
   {.passC: "-DSUPPORT_FILEFORMAT_BDF=1".}
-
-const NaylibSupportTextManipulation {.booldefine.} = true
-when NaylibSupportTextManipulation:
-  {.passC: "-DSUPPORT_TEXT_MANIPULATION=1".}
-
-const NaylibSupportFontAtlasWhiteRec {.booldefine.} = true
-when NaylibSupportFontAtlasWhiteRec:
-  {.passC: "-DSUPPORT_FONT_ATLAS_WHITE_REC=1".}
-
-const NaylibSupportAtlasSizeConservative {.booldefine.} = false
-when NaylibSupportAtlasSizeConservative:
-  {.passC: "-DSUPPORT_FONT_ATLAS_SIZE_CONSERVATIVE=1".}
 
 # ----------------------------------------------------------------------------------------
 # Module: rmodels - Configuration Flags
@@ -268,6 +256,11 @@ const NaylibSupportMeshGeneration {.booldefine.} = true
 when NaylibSupportMeshGeneration:
   {.passC: "-DSUPPORT_MESH_GENERATION=1".}
 
+# GPU skinning support, disabled by default since some GPUs do not support more than 8 VBOs
+const NaylibSupportGpuSkinning* {.booldefine.} = false
+when NaylibSupportGpuSkinning:
+  {.passC: "-DSUPPORT_GPU_SKINNING=1".}
+
 # ----------------------------------------------------------------------------------------
 # Module: raudio - Configuration Flags
 # ----------------------------------------------------------------------------------------
@@ -299,20 +292,3 @@ when NaylibSupportFileFormatXm:
 const NaylibSupportFileFormatMod {.booldefine.} = true
 when NaylibSupportFileFormatMod:
   {.passC: "-DSUPPORT_FILEFORMAT_MOD=1".}
-
-# ----------------------------------------------------------------------------------------
-# Module: utils - Configuration Flags
-# ----------------------------------------------------------------------------------------
-
-const NaylibSupportStandardFileio {.booldefine.} = true
-when NaylibSupportStandardFileio:
-  {.passC: "-DSUPPORT_STANDARD_FILEIO=1".}
-
-const NaylibSupportTracelog {.booldefine.} = true
-when NaylibSupportTracelog:
-  {.passC: "-DSUPPORT_TRACELOG=1".}
-
-const NaylibSupportTracelogDebug {.booldefine.} = false
-when NaylibSupportTracelogDebug:
-  {.passC: "-DSUPPORT_TRACELOG_DEBUG=1".}
-

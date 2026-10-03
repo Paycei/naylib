@@ -4,6 +4,7 @@ This document provides essential context for AI models interacting with this pro
 
 ## 1. Project Overview & Purpose
 
+* **Fork:** This repository is a maintained fork of planetis-m/naylib (archived in August 2026). The readme's "Fork status" section records the upstream commits, the altered source notice raylib's license requires, and every change from upstream.
 * **Primary Goal:** This is a Nim wrapper for raylib, a library for creating 2D and 3D games. The Nim API is designed to be user-friendly and easy to use, providing a simplified interface for raylib functions while maintaining cross-platform support.
 * **Business Domain:** Game development, multimedia applications, educational tools for programming graphics.
 
@@ -76,14 +77,14 @@ This document provides essential context for AI models interacting with this pro
       grabnim
       ```
     * **Setting up the project**
-      1. Run `nimble develop naylib` to clone the repository, this prints Linux installation commands for system dependencies in the output.
+      1. Clone `https://github.com/Paycei/naylib` (`nimble develop naylib` would clone the archived upstream instead).
       2. Run `nimble check` to verify setup
       3. Run `nimble lock` to generate a package lock file
 * **Task Configuration:** 
     * **Nimble Tasks:** Run `nimble tasks` to list all available tasks in the .nimble file, then execute with `nimble <taskname>`
     * **Custom .nims Tasks:** Tasks defined in `update_bindings.nims` can be executed with `nim <taskname> update_bindings.nims`
-* **Testing:** Run tests via `nimble test`. Tests are examples that verify basic functionality. New functionality should be accompanied by appropriate tests.
-* **CI/CD Process:** GitHub Actions workflow that tests on Ubuntu, Windows, and macOS for both native and WebAssembly builds. Also includes a separate CI for Android cross-compilation.
+* **Testing:** Run tests via `nimble test`. `tests/headless_api.nim` checks wrapper behaviour without a window (run it alone with `nim c -r tests/headless_api.nim`); the other tests are examples that verify the builds. New functionality should be accompanied by appropriate tests.
+* **CI/CD Process:** GitHub Actions workflow that tests on Ubuntu, Windows, and macOS for both native and WebAssembly builds. Android is not covered by CI.
 
 ## 7. Specific Instructions for AI Collaboration
 
@@ -97,5 +98,8 @@ This document provides essential context for AI models interacting with this pro
     * Do not hardcode secrets or keys
 * **Dependencies:**
     * When adding new dependencies, edit the .nimble file and run `nimble lock`
-    * Core raylib is bundled, so updates require running the update task in `update_bindings.nims`
+    * Core raylib is bundled, so updates require running the update task in `update_bindings.nims` (follow `manual/update_guide.md`)
+    * `src/raylib.nim`, `src/raymath.nim`, `src/rlgl.nim` and `src/rcamera.nim` are generated: edit `tools/wrapper/config/*.cfg` or `tools/wrapper/snippets/` and regenerate instead of editing them by hand
+    * Any hand edit to raylib's C files in `src/raylib/` must be added to the altered source notice in `readme.md` (raylib's zlib license requires it)
+* **Versioning:** `<raylib major>.<raylib minor>.<patch>` (see Versioning in `readme.md`). A raylib update that changes the major or minor version resets the patch to 0; any other release raises it. Keep `version` in `naylib.nimble` in step.
 * **Commit Messages:** Follow conventional commit messages with clear, descriptive summaries of changes
